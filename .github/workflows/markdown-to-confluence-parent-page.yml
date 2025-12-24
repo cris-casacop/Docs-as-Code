@@ -61,20 +61,23 @@ jobs:
         if: steps.lookup.outputs.page_id == ''
         run: |
           jq -n \
-            --arg title "$PAGE_TITLE" \
-            --arg space "$CONFLUENCE_SPACE_KEY" \
-            --rawfile body page.html \
-            '{
-              type: "page",
-              title: $title,
-              space: { key: $space },
-              body: {
-                storage: {
-                  value: $body,
-                  representation: "storage"
-                }
-              }
-            }' > payload.json
+  --arg title "$PAGE_TITLE" \
+  --arg space "$CONFLUENCE_SPACE_KEY" \
+  --arg parent "$PARENT_PAGE_ID" \
+  --rawfile body page.html \
+  '{
+    type: "page",
+    title: $title,
+    space: { key: $space },
+    ancestors: [ { id: $parent } ],
+    body: {
+      storage: {
+        value: $body,
+        representation: "storage"
+      }
+    }
+  }' > payload.json
+
 
           curl -s \
             -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
@@ -89,23 +92,25 @@ jobs:
         run: |
           NEXT_VERSION=$(( ${{ steps.lookup.outputs.page_version }} + 1 ))
 
-          jq -n \
-            --arg title "$PAGE_TITLE" \
-            --arg space "$CONFLUENCE_SPACE_KEY" \
-            --arg parent "$PARENT_PAGE_ID" \
-            --rawfile body page.html \
-            '{
-              type: "page",
-              title: $title,
-              space: { key: $space },
-              ancestors: [ { id: $parent } ],
-              body: {
-                storage: {
-                value: $body,
-              representation: "storage"
-            }
-          }
-        }' > payload.json
+         jq -n \
+  --arg id "${{ steps.lookup.outputs.page_id }}" \
+  --arg title "$PAGE_TITLE" \
+  --arg parent "$PARENT_PAGE_ID" \
+  --rawfile body page.html \
+  --argjson version "$NEXT_VERSION" \
+  '{
+    id: $id,
+    type: "page",
+    title: $title,
+    ancestors: [ { id: $parent } ],
+    version: { number: $version },
+    body: {
+      storage: {
+        value: $body,
+        representation: "storage"
+      }
+    }
+  }' > payload.json
 
           curl -s \
             -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
