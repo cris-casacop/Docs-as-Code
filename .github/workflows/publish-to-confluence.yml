@@ -13,8 +13,8 @@ jobs:
       CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
       CONFLUENCE_SPACE_KEY: ${{ secrets.CONFLUENCE_SPACE_KEY }}
 
-      # Keep simple for now (no spaces to avoid URL encoding issues or try a space this time)
-      PAGE_TITLE: Docs Demo
+      # Keep simple for now (no spaces to avoid URL encoding issues)
+      PAGE_TITLE: DocsDemo
 
     steps:
       # 1. Checkout repository
