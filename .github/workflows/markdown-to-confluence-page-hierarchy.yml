@@ -24,7 +24,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pandoc jq
 
-      - name: Convert Markdown to HTML
+      - name: Markdown to Confluence - Page Hierarchy
         run: |
           pandoc docs/index.md -f markdown -t html -o page.html
 
