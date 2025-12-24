@@ -38,43 +38,57 @@ jobs:
           echo "page_version=$PAGE_VERSION" >> $GITHUB_OUTPUT
 
       - name: Create or update page
-        run: |
-          BODY=$(cat page.html | sed 's/"/\\"/g')
+  run: |
+    set -e
 
-          if [ -z "${{ steps.get_page.outputs.page_id }}" ]; then
-            echo "Creating new page"
-            curl -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
-              -X POST \
-              -H "Content-Type: application/json" \
-              "$CONFLUENCE_BASE_URL/wiki/rest/api/content" \
-              --data "{
-                \"type\": \"page\",
-                \"title\": \"$PAGE_TITLE\",
-                \"space\": { \"key\": \"$CONFLUENCE_SPACE_KEY\" },
-                \"body\": {
-                  \"storage\": {
-                    \"value\": \"$BODY\",
-                    \"representation\": \"storage\"
-                  }
-                }
-              }"
-          else
-            echo \"Updating existing page\"
-            NEXT_VERSION=$(( ${{ steps.get_page.outputs.page_version }} + 1 ))
-            curl -u \"$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN\" \
-              -X PUT \
-              -H \"Content-Type: application/json\" \
-              \"$CONFLUENCE_BASE_URL/wiki/rest/api/content/${{ steps.get_page.outputs.page_id }}\" \
-              --data \"{
-                \\\"id\\\": \\\"${{ steps.get_page.outputs.page_id }}\\\",
-                \\\"type\\\": \\\"page\\\",
-                \\\"title\\\": \\\"$PAGE_TITLE\\\",
-                \\\"version\\\": { \\\"number\\\": $NEXT_VERSION },
-                \\\"body\\\": {
-                  \\\"storage\\\": {
-                    \\\"value\\\": \\\"$BODY\\\",
-                    \\\"representation\\\": \\\"storage\\\"
-                  }
-                }
-              }\"
-          fi
+    BODY=$(cat page.html)
+
+    if [ -z "${{ steps.get_page.outputs.page_id }}" ]; then
+      echo "Creating new page"
+
+      cat > payload.json <<EOF
+{
+  "type": "page",
+  "title": "$PAGE_TITLE",
+  "space": { "key": "$CONFLUENCE_SPACE_KEY" },
+  "body": {
+    "storage": {
+      "value": $(jq -Rs . page.html),
+      "representation": "storage"
+    }
+  }
+}
+EOF
+
+      curl -s -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
+        -X POST \
+        -H "Content-Type: application/json" \
+        "$CONFLUENCE_BASE_URL/wiki/rest/api/content" \
+        --data @payload.json
+
+    else
+      echo "Updating existing page"
+
+      NEXT_VERSION=$(( ${{ steps.get_page.outputs.page_version }} + 1 ))
+
+      cat > payload.json <<EOF
+{
+  "id": "${{ steps.get_page.outputs.page_id }}",
+  "type": "page",
+  "title": "$PAGE_TITLE",
+  "version": { "number": $NEXT_VERSION },
+  "body": {
+    "storage": {
+      "value": $(jq -Rs . page.html),
+      "representation": "storage"
+    }
+  }
+}
+EOF
+
+      curl -s -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
+        -X PUT \
+        -H "Content-Type: application/json" \
+        "$CONFLUENCE_BASE_URL/wiki/rest/api/content/${{ steps.get_page.outputs.page_id }}" \
+        --data @payload.json
+    fi
