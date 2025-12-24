@@ -96,8 +96,8 @@ jobs:
           --arg id "${{ steps.lookup.outputs.page_id }}" \
           --arg title "$PAGE_TITLE" \
           --arg parent "$PARENT_PAGE_ID" \
-          --rawfile body page.html \
           --argjson version "$NEXT_VERSION" \
+          --rawfile body page.html \
           '{
             id: $id,
             type: "page",
