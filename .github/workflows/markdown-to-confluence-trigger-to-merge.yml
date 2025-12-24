@@ -1,4 +1,4 @@
-name: Markdown to Confluence - Trigger to Merge
+name: Markdown to Confluence - Trigger to Merge (CI/CD)
 
 on:
   push:
