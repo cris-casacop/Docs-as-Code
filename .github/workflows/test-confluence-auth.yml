@@ -1,0 +1,29 @@
+name: Test Confluence Authentication
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    env:
+      CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+      CONFLUENCE_USER: ${{ secrets.CONFLUENCE_USER }}
+      CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
+
+    steps:
+      - name: Test API access
+        run: |
+          echo "Testing Confluence authentication..."
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
+            "$CONFLUENCE_BASE_URL/wiki/rest/api/space?limit=1")
+
+          if [ "$STATUS" -eq 200 ]; then
+            echo "✅ Authentication successful (HTTP 200)"
+          else
+            echo "❌ Authentication failed (HTTP $STATUS)"
+            exit 1
+          fi
