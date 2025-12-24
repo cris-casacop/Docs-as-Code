@@ -1,0 +1,43 @@
+name: Publish Markdown to Confluence
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    env:
+      CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+      CONFLUENCE_USER: ${{ secrets.CONFLUENCE_USER }}
+      CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
+      CONFLUENCE_SPACE_KEY: ${{ secrets.CONFLUENCE_SPACE_KEY }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install Pandoc
+        run: sudo apt-get update && sudo apt-get install -y pandoc
+
+      - name: Convert Markdown to HTML
+        run: |
+          pandoc docs/index.md -f markdown -t html -o page.html
+
+      - name: Publish to Confluence
+        run: |
+          curl -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            "$CONFLUENCE_BASE_URL/wiki/rest/api/content" \
+            --data '{
+              "type": "page",
+              "title": "Docs-as-Code Demo Page",
+              "space": { "key": "'"$CONFLUENCE_SPACE_KEY"'" },
+              "body": {
+                "storage": {
+                  "value": "'"$(cat page.html | sed 's/"/\\"/g')"'" ,
+                  "representation": "storage"
+                }
+              }
+            }'
