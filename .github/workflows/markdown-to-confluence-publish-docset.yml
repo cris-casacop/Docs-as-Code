@@ -13,7 +13,6 @@ jobs:
       CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
       CONFLUENCE_SPACE_KEY: ${{ secrets.CONFLUENCE_SPACE_KEY }}
       PARENT_PAGE_ID: ${{ secrets.PARENT_PAGE_ID }}
-      PAGE_TITLE: DocsPageHierarchyDemo
 
     steps:
       - name: Checkout repository
@@ -24,6 +23,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pandoc jq
 
-      - name: Markdown to Confluence - Publish Documentation Set
-          run: |
+      - name: Publish all Markdown files
+        run: |
           bash scripts/publish_all.sh
