@@ -13,31 +13,113 @@ jobs:
       CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
       CONFLUENCE_SPACE_KEY: ${{ secrets.CONFLUENCE_SPACE_KEY }}
 
+      # IMPORTANT: no spaces for now (avoids URL encoding issues)
+      PAGE_TITLE: DocsAsCodeDemo
+
     steps:
-      - name: Checkout repo
+      # 1. Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Pandoc
-        run: sudo apt-get update && sudo apt-get install -y pandoc
+      # 2. Install required tools
+      - name: Install Pandoc and jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc jq
 
+      # 3. Convert Markdown to HTML
       - name: Convert Markdown to HTML
         run: |
           pandoc docs/index.md -f markdown -t html -o page.html
 
-      - name: Publish to Confluence
+      # 4. Check if page already exists
+      - name: Get existing Confluence page (if any)
+        id: get_page
         run: |
-          curl -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
-            -X POST \
-            -H "Content-Type: application/json" \
-            "$CONFLUENCE_BASE_URL/wiki/rest/api/content" \
-            --data '{
-              "type": "page",
-              "title": "Docs-as-Code Demo Page",
-              "space": { "key": "'"$CONFLUENCE_SPACE_KEY"'" },
-              "body": {
-                "storage": {
-                  "value": "'"$(cat page.html | sed 's/"/\\"/g')"'" ,
-                  "representation": "storage"
-                }
-              }
-            }'
+          set -e
+
+          API_URL="${CONFLUENCE_BASE_URL}/wiki/rest/api/content?title=${PAGE_TITLE}&spaceKey=${CONFLUENCE_SPACE_KEY}"
+
+          echo "Calling Confluence API:"
+          echo "$API_URL"
+
+          RESPONSE=$(curl -s \
+            -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
+            "$API_URL")
+
+          echo "$RESPONSE" | jq .
+
+          PAGE_ID=$(echo "$RESPONSE" | jq -r '.results[0].id // empty')
+          PAGE_VERSION=$(echo "$RESPONSE" | jq -r '.results[0].version.number // 0')
+
+          echo "page_id=$PAGE_ID" >> $GITHUB_OUTPUT
+          echo "page_version=$PAGE_VERSION" >> $GITHUB_OUTPUT
+
+      # 5. Create or update the page
+      - name: Create or update Confluence page
+        run: |
+          set -e
+
+          echo "Preparing payload…"
+
+          if [ -z "${{ steps.get_page.outputs.page_id }}" ]; then
+            echo "Creating new page"
+
+            cat > payload.json <<EOF
+{
+  "type": "page",
+  "title": "$PAGE_TITLE",
+  "space": { "key": "$CONFLUENCE_SPACE_KEY" },
+  "body": {
+    "storage": {
+      "value": $(jq -Rs . page.html),
+      "representation": "storage"
+    }
+  }
+}
+EOF
+
+            curl -s \
+              -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
+              -X POST \
+              -H "Content-Type: application/json" \
+              "$CONFLUENCE_BASE_URL/wiki/rest/api/content" \
+              --data @payload.json
+
+          else
+            echo "Updating existing page"
+
+            NEXT_VERSION=$(( ${{ steps.get_page.outputs.page_version }} + 1 ))
+
+            cat > payload.json <<EOF
+{
+  "id": "${{ steps.get_page.outputs.page_id }}",
+  "type": "page",
+  "title": "$PAGE_TITLE",
+  "version": { "number": $NEXT_VERSION },
+  "body": {
+    "storage": {
+      "value": $(jq -Rs . page.html),
+      "representation": "storage"
+    }
+  }
+}
+EOF
+
+            curl -s \
+              -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
+              -X PUT \
+              -H "Content-Type: application/json" \
+              "$CONFLUENCE_BASE_URL/wiki/rest/api/content/${{ steps.get_page.outputs.page_id }}" \
+              --data @payload.json
+          fi
+
+      # 6. Verify page exists (definitive check)
+      - name: Verify page exists via API
+        run: |
+          echo "Verifying page existence…"
+
+          curl -s \
+            -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
+            "$CONFLUENCE_BASE_URL/wiki/rest/api/content?title=$PAGE_TITLE&expand=space" \
+            | jq .
