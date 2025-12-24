@@ -76,4 +76,32 @@ jobs:
       - name: Update page
         if: steps.lookup.outputs.page_id != ''
         run: |
-          PA
+          PAGE_ID="${{ steps.lookup.outputs.page_id }}"
+          NEXT_VERSION=$(( ${{ steps.lookup.outputs.page_version }} + 1 ))
+
+          jq -n \
+            --arg title "$PAGE_TITLE" \
+            --arg parent "$PARENT_PAGE_ID" \
+            --argjson version "$NEXT_VERSION" \
+            --rawfile body page.html \
+            --argjson id "$PAGE_ID" \
+            '{
+              id: $id,
+              type: "page",
+              title: $title,
+              ancestors: [ { id: $parent } ],
+              version: { number: $version },
+              body: {
+                storage: {
+                  value: $body,
+                  representation: "storage"
+                }
+              }
+            }' > payload.json
+
+          curl -s \
+            -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
+            -X PUT \
+            -H "Content-Type: application/json" \
+            "$CONFLUENCE_BASE_URL/wiki/rest/api/content/$PAGE_ID" \
+            --data @payload.json
