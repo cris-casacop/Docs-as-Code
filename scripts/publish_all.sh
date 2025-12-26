@@ -3,18 +3,17 @@ set -euo pipefail
 
 echo "=== Docs-as-Code publish started ==="
 
-# Fail early if docs folder does not exist
+# Ensure docs directory exists
 if [[ ! -d "docs" ]]; then
   echo "ERROR: docs/ directory not found"
   exit 1
 fi
 
-# Ensure at least one Markdown file exists
 shopt -s nullglob
 FILES=(docs/*.md)
 
 if [[ ${#FILES[@]} -eq 0 ]]; then
-  echo "No Markdown files found in docs/"
+  echo "No Markdown files found. Nothing to publish."
   exit 0
 fi
 
@@ -25,19 +24,16 @@ for file in "${FILES[@]}"; do
     | sed 's/-/ /g' \
     | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2)}1')
 
-  echo "Processing: $file → $TITLE"
+  echo "Processing $file → $TITLE"
 
   pandoc "$file" -f markdown -t html -o page.html
 
-  # Look up page by title
-  SEARCH_URL="${CONFLUENCE_BASE_URL}/wiki/rest/api/content?title=${TITLE}&spaceKey=${CONFLUENCE_SPACE_KEY}"
-
-  SEARCH_RESPONSE=$(curl -s \
+  SEARCH=$(curl -s \
     -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
-    "$SEARCH_URL")
+    "$CONFLUENCE_BASE_URL/wiki/rest/api/content?title=$TITLE&spaceKey=$CONFLUENCE_SPACE_KEY")
 
-  PAGE_ID=$(echo "$SEARCH_RESPONSE" | jq -r '.results[0].id // empty')
-  PAGE_VERSION=$(echo "$SEARCH_RESPONSE" | jq -r '.results[0].version.number // 0')
+  PAGE_ID=$(echo "$SEARCH" | jq -r '.results[0].id // empty')
+  VERSION=$(echo "$SEARCH" | jq -r '.results[0].version.number // 0')
 
   if [[ -z "$PAGE_ID" ]]; then
     echo "Creating page: $TITLE"
@@ -68,8 +64,8 @@ for file in "${FILES[@]}"; do
       --data @payload.json
 
   else
-    NEXT_VERSION=$((PAGE_VERSION + 1))
-    echo "Updating page: $TITLE (ID: $PAGE_ID → v$NEXT_VERSION)"
+    NEXT_VERSION=$((VERSION + 1))
+    echo "Updating page: $TITLE (ID: $PAGE_ID)"
 
     jq -n \
       --arg id "$PAGE_ID" \
