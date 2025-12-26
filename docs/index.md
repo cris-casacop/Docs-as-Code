@@ -6,3 +6,5 @@ This page is published automatically from GitHub.
 - Git is the source of truth
 - Confluence is read-only
 - CI handles publishing
+
+<p><strong>CI UPDATE TEST – THIS MUST APPEAR</strong></p>
