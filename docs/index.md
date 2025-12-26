@@ -7,4 +7,4 @@ This page is published automatically from GitHub.
 - Confluence is read-only
 - CI handles publishing
 
-<p><strong>THIS MUST APPEAR - CHECK</strong></p>
+<p><strong>THIS MUST APPEAR...</strong></p>
