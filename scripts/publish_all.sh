@@ -1,35 +1,75 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "Starting Docs-as-Code publish to Confluence (auto-create enabled)"
+echo "=== Docs-as-Code publish started ==="
 
-MAP_FILE="docs/.confluence-map.json"
+# Fail early if docs folder does not exist
+if [[ ! -d "docs" ]]; then
+  echo "ERROR: docs/ directory not found"
+  exit 1
+fi
 
-for file in docs/*.md; do
+# Ensure at least one Markdown file exists
+shopt -s nullglob
+FILES=(docs/*.md)
+
+if [[ ${#FILES[@]} -eq 0 ]]; then
+  echo "No Markdown files found in docs/"
+  exit 0
+fi
+
+for file in "${FILES[@]}"; do
   filename=$(basename "$file")
 
-  TITLE=$(sed 's/\.md$//' <<< "$filename" | sed 's/-/ /g' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2)}1')
+  TITLE=$(echo "${filename%.md}" \
+    | sed 's/-/ /g' \
+    | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2)}1')
 
-  echo "Processing $filename → $TITLE"
+  echo "Processing: $file → $TITLE"
 
   pandoc "$file" -f markdown -t html -o page.html
 
-  PAGE_ID=""
+  # Look up page by title
+  SEARCH_URL="${CONFLUENCE_BASE_URL}/wiki/rest/api/content?title=${TITLE}&spaceKey=${CONFLUENCE_SPACE_KEY}"
 
-  # Try to read page ID from map if it exists
-  if [[ -f "$MAP_FILE" ]]; then
-    PAGE_ID=$(jq -r --arg file "$filename" '.[$file] // empty' "$MAP_FILE")
-  fi
+  SEARCH_RESPONSE=$(curl -s \
+    -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
+    "$SEARCH_URL")
 
-  if [[ -n "$PAGE_ID" ]]; then
-    echo "Updating existing page (ID: $PAGE_ID)"
+  PAGE_ID=$(echo "$SEARCH_RESPONSE" | jq -r '.results[0].id // empty')
+  PAGE_VERSION=$(echo "$SEARCH_RESPONSE" | jq -r '.results[0].version.number // 0')
 
-    PAGE_RESPONSE=$(curl -s \
+  if [[ -z "$PAGE_ID" ]]; then
+    echo "Creating page: $TITLE"
+
+    jq -n \
+      --arg title "$TITLE" \
+      --arg space "$CONFLUENCE_SPACE_KEY" \
+      --arg parent "$PARENT_PAGE_ID" \
+      --rawfile body page.html \
+      '{
+        type: "page",
+        title: $title,
+        space: { key: $space },
+        ancestors: [ { id: $parent } ],
+        body: {
+          storage: {
+            value: $body,
+            representation: "storage"
+          }
+        }
+      }' > payload.json
+
+    curl -s \
       -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
-      "$CONFLUENCE_BASE_URL/wiki/rest/api/content/$PAGE_ID?expand=version")
+      -X POST \
+      -H "Content-Type: application/json" \
+      "$CONFLUENCE_BASE_URL/wiki/rest/api/content" \
+      --data @payload.json
 
-    CURRENT_VERSION=$(echo "$PAGE_RESPONSE" | jq -r '.version.number')
-    NEXT_VERSION=$((CURRENT_VERSION + 1))
+  else
+    NEXT_VERSION=$((PAGE_VERSION + 1))
+    echo "Updating page: $TITLE (ID: $PAGE_ID → v$NEXT_VERSION)"
 
     jq -n \
       --arg id "$PAGE_ID" \
@@ -57,40 +97,7 @@ for file in docs/*.md; do
       -H "Content-Type: application/json" \
       "$CONFLUENCE_BASE_URL/wiki/rest/api/content/$PAGE_ID" \
       --data @payload.json
-
-  else
-    echo "Creating new page (no mapping found)"
-
-    RESPONSE=$(jq -n \
-      --arg title "$TITLE" \
-      --arg space "$CONFLUENCE_SPACE_KEY" \
-      --arg parent "$PARENT_PAGE_ID" \
-      --rawfile body page.html \
-      '{
-        type: "page",
-        title: $title,
-        space: { key: $space },
-        ancestors: [ { id: $parent } ],
-        body: {
-          storage: {
-            value: $body,
-            representation: "storage"
-          }
-        }
-      }' \
-      | curl -s \
-          -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
-          -X POST \
-          -H "Content-Type: application/json" \
-          "$CONFLUENCE_BASE_URL/wiki/rest/api/content" \
-          --data @-)
-
-    NEW_PAGE_ID=$(echo "$RESPONSE" | jq -r '.id')
-
-    echo "Created page '$TITLE' with ID: $NEW_PAGE_ID"
-    echo "👉 Optional: add this to docs/.confluence-map.json"
-
   fi
 done
 
-echo "Docs-as-Code publish completed"
+echo "=== Docs-as-Code publish completed ==="
