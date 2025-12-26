@@ -1,113 +1,66 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "=== Docs-as-Code publish started (label-based) ==="
+echo "Starting Docs-as-Code publish to Confluence"
 
-# Ensure docs directory exists
-if [[ ! -d "docs" ]]; then
-  echo "ERROR: docs/ directory not found"
+MAP_FILE="docs/.confluence-map.json"
+
+if [[ ! -f "$MAP_FILE" ]]; then
+  echo "ERROR: $MAP_FILE not found"
   exit 1
 fi
 
-shopt -s nullglob
-FILES=(docs/*.md)
-
-if [[ ${#FILES[@]} -eq 0 ]]; then
-  echo "No Markdown files found. Nothing to publish."
-  exit 0
-fi
-
-for file in "${FILES[@]}"; do
+for file in docs/*.md; do
   filename=$(basename "$file")
 
-  TITLE=$(echo "${filename%.md}" \
-    | sed 's/-/ /g' \
-    | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2)}1')
+  PAGE_ID=$(jq -r --arg file "$filename" '.[$file] // empty' "$MAP_FILE")
 
-  LABEL="docs-${filename%.md}"
+  if [[ -z "$PAGE_ID" ]]; then
+    echo "Skipping $filename (no page ID mapping)"
+    continue
+  fi
 
-  echo "Processing $file → $TITLE (label: $LABEL)"
+  TITLE=$(sed 's/\.md$//' <<< "$filename" | sed 's/-/ /g' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2)}1')
+
+  echo "Publishing $filename → Page ID $PAGE_ID ($TITLE)"
 
   pandoc "$file" -f markdown -t html -o page.html
 
-  # 🔍 Look up page by label (NOT title)
-  SEARCH=$(curl -s \
+  PAGE_RESPONSE=$(curl -s \
     -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
-    "$CONFLUENCE_BASE_URL/wiki/rest/api/content/search?cql=label=${LABEL}")
+    "$CONFLUENCE_BASE_URL/wiki/rest/api/content/$PAGE_ID?expand=version")
 
-  PAGE_ID=$(echo "$SEARCH" | jq -r '.results[0].id // empty')
+  CURRENT_VERSION=$(echo "$PAGE_RESPONSE" | jq -r '.version.number')
+  NEXT_VERSION=$((CURRENT_VERSION + 1))
 
-  if [[ -z "$PAGE_ID" ]]; then
-    echo "Creating page: $TITLE"
-
-    jq -n \
-      --arg title "$TITLE" \
-      --arg space "$CONFLUENCE_SPACE_KEY" \
-      --arg parent "$PARENT_PAGE_ID" \
-      --arg label "$LABEL" \
-      --rawfile body page.html \
-      '{
-        type: "page",
-        title: $title,
-        space: { key: $space },
-        ancestors: [ { id: $parent } ],
-        metadata: {
-          labels: [
-            { prefix: "global", name: $label }
-          ]
-        },
-        body: {
-          storage: {
-            value: $body,
-            representation: "storage"
-          }
+  jq -n \
+    --arg id "$PAGE_ID" \
+    --arg title "$TITLE" \
+    --arg parent "$PARENT_PAGE_ID" \
+    --argjson version "$NEXT_VERSION" \
+    --rawfile body page.html \
+    '{
+      id: $id,
+      type: "page",
+      title: $title,
+      ancestors: [ { id: $parent } ],
+      version: { number: $version },
+      body: {
+        storage: {
+          value: $body,
+          representation: "storage"
         }
-      }' > payload.json
+      }
+    }' > payload.json
 
-    curl -s \
-      -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
-      -X POST \
-      -H "Content-Type: application/json" \
-      "$CONFLUENCE_BASE_URL/wiki/rest/api/content" \
-      --data @payload.json
+  curl -s \
+    -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
+    -X PUT \
+    -H "Content-Type: application/json" \
+    "$CONFLUENCE_BASE_URL/wiki/rest/api/content/$PAGE_ID" \
+    --data @payload.json
 
-  else
-    echo "Updating page: $TITLE (ID: $PAGE_ID)"
-
-    PAGE_RESPONSE=$(curl -s \
-      -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
-      "$CONFLUENCE_BASE_URL/wiki/rest/api/content/$PAGE_ID?expand=version")
-
-    VERSION=$(echo "$PAGE_RESPONSE" | jq -r '.version.number')
-    NEXT_VERSION=$((VERSION + 1))
-
-    jq -n \
-      --arg id "$PAGE_ID" \
-      --arg title "$TITLE" \
-      --arg parent "$PARENT_PAGE_ID" \
-      --argjson version "$NEXT_VERSION" \
-      --rawfile body page.html \
-      '{
-        id: $id,
-        type: "page",
-        title: $title,
-        ancestors: [ { id: $parent } ],
-        version: { number: $version },
-        body: {
-          storage: {
-            value: $body,
-            representation: "storage"
-          }
-        }
-      }' > payload.json
-
-    curl -s \
-      -u "$CONFLUENCE_USER:$CONFLUENCE_API_TOKEN" \
-      -X PUT \
-      -H "Content-Type: application/json" \
-      "$CONFLUENCE_BASE_URL/wiki/rest/api/content/$PAGE_ID" \
-      --data @payload.json
-  fi
+  echo "Updated page $PAGE_ID successfully"
 done
 
-echo "=== Docs-as-Code publish completed ==="
+echo "Docs-as-Code publish completed"
